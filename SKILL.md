@@ -117,49 +117,51 @@ backfill: <true|false, omit if not backfill>
 backfilled_at: <Beijing ISO, only if backfill>
 ---
 
-# YYYY-MM-DD 工作汇总
+# YYYY-MM-DD Work Summary
 
-## 任务索引
-- **任务 1 · <name>**: <one-line summary>
-- **任务 2 · <name>**: <one-line summary>
+## Task Index
+- **Task 1 · <name>**: <one-line summary>
+- **Task 2 · <name>**: <one-line summary>
 
-## 任务过程
+## Task Narrative
 
-### 任务 1 · <name>
+### Task 1 · <name>
 
 (200-400 word narrative: why / how / decisions / artifacts)
 
-**Session DB 引用**
-- 主 session: `file:///path/to/db#session=<id>` — "<human title>"
-- 支线: <other db paths + session ids>
-- 跨 harness: <only if the task spans multiple harnesses>
+**Session DB References**
+- Main session: `file:///path/to/db#session=<id>` — "<human title>"
+- Sub-sessions: <other db paths + session ids>
+- Cross-harness: <only if the task spans multiple harnesses>
 
-### 任务 2 · <name>
+### Task 2 · <name>
 
 (narrative)
 
-**Session DB 引用**
-- 主 session: `file:///path/to/db#session=<id>`
+**Session DB References**
+- Main session: `file:///path/to/db#session=<id>`
 
-## 待办跟进
+## Todo Follow-up
 - [ ] <only items explicitly mentioned in today's conversation>
 
 ## Notes
 <any anomalies or warnings>
 ```
 
-**Session DB references are the audit trail, not decoration.** Every task's narrative ends with a `Session DB 引用` block listing the exact SQLite/JSONL file path and session ID where the work happened. macOS Finder `file://` links open the database directly; SQL queries by `session_id` recover the full original conversation. The daily.md is intentionally lighter than a clone — full content stays in the original harness DB; daily.md tells you *what* and *why*, the Session DB references tell you *where the truth lives*.
+> **Note**: The example above is in English. If your daily notes are in Chinese, swap `Task 1 · <name>` for `任务 1 · <name>` and use the `prompts/summarize-today.zh.md` variant. See the "Locale configuration" section below.
+
+**Session DB references are the audit trail, not decoration.** Every task's narrative ends with a `Session DB References` block listing the exact SQLite/JSONL file path and session ID where the work happened. macOS Finder `file://` links open the database directly; SQL queries by `session_id` recover the full original conversation. The daily.md is intentionally lighter than a clone — full content stays in the original harness DB; daily.md tells you *what* and *why*, the Session DB references tell you *where the truth lives*.
 
 ### Two layers, no overlap
 
-- **任务索引 (Layer 1)**: 1 line per task. Scan-only. "What happened."
-- **任务过程 (Layer 2)**: 200-400 words per task. Read-for-context. "Why + how + decisions."
+- **Task Index (Layer 1)**: 1 line per task. Scan-only. "What happened."
+- **Task Narrative (Layer 2)**: 200-400 words per task. Read-for-context. "Why + how + decisions."
 - **No repetition.** Layer 1 is a hook, Layer 2 is the body.
 - **Draft order matters.** Write Layer 1 first as a literal one-line summary per task, then close the file mentally before drafting Layer 2. If the agent writes both layers in the same pass it will paraphrase Layer 1 into Layer 2 — the user has hit this three times in development. Treat them as two separate writing tasks.
 
 ### Todo source discipline
 
-The 待办跟进 section lists ONLY items explicitly mentioned in the day's dialog (a user/agent "todo / 跟进 / 记得 / next step / 明天做"). Do not pull candidate todos from MEMORY.md, USER.md, or any persistent state — the user has rejected "iCloud Obsidian sync方案" appearing in daily todos when iCloud was not discussed that day. If no dialog mentioned a todo, write `- [ ] (今日对话无明确待办)` instead of inventing one.
+The Todo Follow-up section lists ONLY items explicitly mentioned in the day's dialog (a user/agent "todo", "follow up", "remember", "next step", "tomorrow"). Do not pull candidate todos from MEMORY.md, USER.md, or any persistent state — the user has explicitly rejected unrelated topics (e.g. iCloud sync) appearing in daily todos when not discussed that day. If no dialog mentioned a todo, write `- [ ] (no explicit todo today)` instead of inventing one.
 
 ### Hermes Desktop dialog is part of the worklog
 
@@ -205,6 +207,37 @@ Weekly synthesis should run the same check on its 7-day window before generating
 ---
 
 ## Customization
+
+### Locale configuration — pick your language for daily notes
+
+The repo ships with **two prompt variants** for Job 2:
+
+| File | Language | Use when |
+|------|----------|----------|
+| `prompts/summarize-today.md` | English | Daily notes in English |
+| `prompts/summarize-today.zh.md` | Chinese (中文) | Daily notes in Chinese |
+
+Both prompts are functionally identical — only the language differs. The slug format, task structure, backfill logic, and Session DB references are the same.
+
+**To install the Chinese variant** (replace your `summarize-today.md`):
+
+```bash
+cp prompts/summarize-today.zh.md \
+   ~/Documents/Obsidian/Agents\ Shared\ Worklog/.hermes-prompts/summarize-today.md
+```
+
+Then **edit** the cron job to read the Chinese prompt:
+
+```bash
+hermes-cron update summarize-today \
+  --prompt-file /path/to/job2-prompt.zh.txt
+```
+
+(Where `job2-prompt.zh.txt` is your Chinese wrapper that `cat`s the prompt + tasks.json + today's JSON, mirroring the English wrapper.)
+
+**The `daily.md` and `tasks.json` content language follows your prompt** — pick one and stick with it. Mixing English task names with Chinese task names will break cross-day continuity.
+
+**Default for new installs**: English (matches the SKILL.md examples).
 
 ### Change the daily directory
 

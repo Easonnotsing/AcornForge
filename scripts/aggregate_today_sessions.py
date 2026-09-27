@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """Hermes cron "aggregate-today-sessions"
 
-每天 22:00 跑一次，纯 shell + python，无 LLM 调用。
-输出: ~/.hermes/cache/cron/aggregate/YYYY-MM-DD.json
+Shell-only cron running nightly (default 22:00) with no LLM invocation.
+Output: ~/.hermes/cache/cron/aggregate/YYYY-MM-DD.json
 
-覆盖 harness: Hermes state.db / OpenCode opencode.db /
-Claude Code JSONL / Codex CLI JSONL / Claudian meta.json
+Covers 5 harnesses:
+  - Hermes      ~/.hermes/state.db                   (SQLite, epoch seconds)
+  - OpenCode    ~/.local/share/opencode/opencode.db  (SQLite, epoch milliseconds)
+  - Claude Code ~/.claude/projects/**/*.jsonl        (file mtime)
+  - Codex CLI   ~/.codex/sessions/**/*.jsonl         (file mtime)
+  - Claudian    ~/Documents/Obsidian/.claudian/sessions/ (file mtime)
 
-时区强约束:
-- 所有 SQLite 时间戳 (epoch 秒 或 epoch 毫秒) 一律按 Asia/Shanghai 解释
-- 比对基准是 Beijing 时间今天 00:00 (epoch 秒, 本地时区)
-- 永远不要输出 UTC 时间戳给用户或落到 Vault 文件
+Timezone constraint:
+  - All SQLite timestamps (epoch seconds or milliseconds) MUST be interpreted
+    as Asia/Shanghai (UTC+8). Do NOT print raw epoch or UTC strings.
+  - The reference baseline is Beijing local midnight (epoch seconds, local TZ).
 """
 import argparse
 import json
@@ -21,7 +25,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-# 强约束:本脚本所有时间按 Asia/Shanghai 解释/输出
+# Strict: this script interprets/outputs everything in Asia/Shanghai
 TZ_SH = timezone(timedelta(hours=8), name="Asia/Shanghai")
 HOME = Path.home()
 
@@ -31,7 +35,7 @@ def _parse_args():
     p.add_argument(
         "--date",
         default=None,
-        help="目标日期 YYYY-MM-DD(Asia/Shanghai);不传 = 今天。补做历史 daily 时传。",
+        help="Target date YYYY-MM-DD (Asia/Shanghai). Default = today. Pass an explicit date for backfill.",
     )
     return p.parse_args()
 
@@ -41,7 +45,7 @@ NOW_SH = datetime.now(tz=TZ_SH)
 TARGET_DAY = ARGS.date or NOW_SH.strftime("%Y-%m-%d")
 TARGET_DAY_DT = datetime.strptime(TARGET_DAY, "%Y-%m-%d").replace(tzinfo=TZ_SH)
 TODAY_00 = TARGET_DAY_DT
-# 对今天跑:窗口是 [今天 00:00, now];对历史补做:窗口是 [那天 00:00, 那天 23:59:59]
+# Today: window is [today 00:00, now]; historical backfill: [that day 00:00, that day 23:59:59]
 if TARGET_DAY == NOW_SH.strftime("%Y-%m-%d"):
     END_TS = NOW_SH.timestamp()
 else:
@@ -52,20 +56,22 @@ OUT.parent.mkdir(parents=True, exist_ok=True)
 
 
 def ts_to_sh(ts_epoch_seconds: float) -> str:
-    """epoch 秒 → Asia/Shanghai ISO 时间字符串"""
+    """epoch seconds → Asia/Shanghai ISO timestamp string"""
     return datetime.fromtimestamp(ts_epoch_seconds, tz=TZ_SH).isoformat()
 
 
 def ts_ms_to_sh(ts_epoch_ms: int) -> str:
-    """epoch 毫秒 → Asia/Shanghai ISO 时间字符串"""
+    """epoch milliseconds → Asia/Shanghai ISO timestamp string"""
     return datetime.fromtimestamp(ts_epoch_ms / 1000.0, tz=TZ_SH).isoformat()
 
 
 def _extract_text(data_json: str) -> str:
-    """OpenCode part.data 是 JSON,顶层 type 决定如何抽出文本。
+    """OpenCode part.data is JSON; top-level `type` decides how to extract text.
 
-    text / reasoning → 直接读 .text
-    tool / file / patch / step-* / compaction → 返回 ""
+    type='text' / 'reasoning' → return .text
+    type='tool' / 'file' / 'patch' / 'step-*' / 'compaction' → return ""
+
+    Also handles message.data where content is a list of {type, text} chunks.
     """
     try:
         obj = json.loads(data_json)
@@ -89,9 +95,9 @@ def _extract_text(data_json: str) -> str:
 
 
 def _extract_part_action(data_json: str):
-    """从 tool/file/patch 类 part 抽出动作摘要(给层次 1 '做了什么'用)。
+    """Extract action summary from tool/file/patch parts (used in Layer 1 "what was done").
 
-    返回 dict{type, summary} 或 None。(Python 3.9 兼容写法)
+    Returns dict {type, ...summary fields} or None. (Python 3.9 compatible style.)
     """
     try:
         obj = json.loads(data_json)
@@ -101,21 +107,18 @@ def _extract_part_action(data_json: str):
         return None
     otype = obj.get("type")
     if otype == "tool":
-        # obj: {type, tool: name, args, ...}
         return {
             "type": "tool",
             "name": obj.get("tool"),
             "args_keys": list(obj.get("args", {}).keys()) if isinstance(obj.get("args"), dict) else [],
         }
     if otype == "file":
-        # obj: {type, path, content? / mime?}
         return {
             "type": "file",
             "path": obj.get("path"),
             "mime": obj.get("mime"),
         }
     if otype == "patch":
-        # obj: {type, files?: [{path, hash}]}
         files = obj.get("files") or []
         return {
             "type": "patch",
@@ -125,10 +128,10 @@ def _extract_part_action(data_json: str):
 
 
 def _is_main_agent(agent_name):
-    """判断是否为'主 agent' vs 'subagent'。
+    """Decide whether the agent is 'main' vs 'subagent'.
 
-    启发式:agent 字段含 'subagent' 或 session 标题里有 '@general subagent'
-    视为 subagent,其他都视为主 agent(包括 'claudian-yolo' / 'build' / None)。
+    Heuristic: agent field contains 'subagent' → subagent.
+    Everything else (including 'claudian-yolo', 'build', None) is treated as main agent.
     """
     if not agent_name:
         return True
@@ -137,7 +140,7 @@ def _is_main_agent(agent_name):
 
 
 def _extract_msg_meta(data_json: str) -> dict:
-    """从 message.data 抽出 role / agent / variant / path / tokens。"""
+    """Extract role / agent / variant / path / tokens from message.data."""
     try:
         obj = json.loads(data_json)
     except Exception:
@@ -152,6 +155,7 @@ def _extract_msg_meta(data_json: str) -> dict:
         "tokens_total": (obj.get("tokens") or {}).get("total") if isinstance(obj.get("tokens"), dict) else None,
         "finish": obj.get("finish"),
     }
+
 
 results = {
     "date": TODAY_00.strftime("%Y-%m-%d"),
@@ -171,8 +175,8 @@ if hermes_db.exists():
         tables = [r[0] for r in cur.fetchall()]
         info = {"tables": tables}
         if "sessions" in tables:
-            # Hermes schema: sessions 表用 last_activity_at REAL (epoch seconds)；
-            # 长期延续的 Desktop session 用 started_at (几天前) + last_activity_at (今天)
+            # Hermes schema: sessions table uses last_activity_at REAL (epoch seconds);
+            # long-running Desktop sessions have started_at (days ago) + last_activity_at (today).
             cur.execute("PRAGMA table_info(sessions)")
             cols = [r[1] for r in cur.fetchall()]
             if "last_activity_at" in cols:
@@ -187,7 +191,7 @@ if hermes_db.exists():
                     (TODAY_TS, END_TS),
                 )
                 info["started_today"] = cur.fetchone()[0]
-            # 按 source 看今日活跃,确认 Desktop / cron / cli / weixin 各占多少
+            # Per-source breakdown of today's activity (desktop / cron / cli / weixin)
             if "last_activity_at" in cols and "source" in cols:
                 cur.execute(
                     """SELECT source, COUNT(*) FROM sessions
@@ -196,7 +200,7 @@ if hermes_db.exists():
                     (TODAY_TS, END_TS),
                 )
                 info["by_source"] = {r[0]: r[1] for r in cur.fetchall()}
-                # 最近 5 条 session 详情,给 agent 摘要用
+                # Recent 10 sessions for the summarizer agent
                 cur.execute(
                     """SELECT id, source, title, model, profile_name,
                               started_at, last_activity_at,
@@ -216,7 +220,7 @@ if hermes_db.exists():
                     for r in cur.fetchall()
                 ]
         results["sources"]["hermes"] = info
-        # 同时把今日活跃 session 的 message dialog 也抓下来(给层次2用)
+        # Also fetch today's active sessions' message dialog (for Layer 2 narrative)
         if "messages" in tables and info.get("recent_sessions"):
             try:
                 today_active_ids = [s["id"] for s in info["recent_sessions"]]
@@ -231,19 +235,19 @@ if hermes_db.exists():
                             ORDER BY session_id, timestamp""",
                         (*today_active_ids, TODAY_TS, END_TS),
                     )
-                    by_session: dict[str, list] = {sid: [] for sid in today_active_ids}
+                    by_session = {}
                     for sid, role, content, ts in cur.fetchall():
                         if not content:
                             continue
-                        # 截断:每个 message 最多 2000 字,避免 JSON 爆炸
-                        by_session[sid].append(
+                        # Truncate: cap each message to 2000 chars to avoid JSON explosion
+                        by_session.setdefault(sid, []).append(
                             {
                                 "role": role,
                                 "time": ts_to_sh(ts),
                                 "content": content[:2000],
                             }
                         )
-                    # 挂到每个 session 上
+                    # Attach dialog to each session
                     for s in info["recent_sessions"]:
                         msgs = by_session.get(s["id"], [])
                         s["dialog"] = msgs
@@ -268,7 +272,7 @@ if oc_db.exists():
             (today_ms, end_ms),
         )
         n_today = cur.fetchone()[0]
-        # 取今日活跃 session 元数据
+        # Fetch active session metadata
         cur.execute(
             """
             SELECT id, title,
@@ -292,12 +296,11 @@ if oc_db.exists():
             for r in cur.fetchall()
         ]
         session_ids = [s["id"] for s in sessions_meta]
-        # 取每个 session 的 message 全文(只取今日新增的,不在 session_ids 全量里)
-        # message.data 是 JSON: {"role": "user"|"assistant", "content": "..."} 或更复杂
-        # 用 IN 子句批量取
-        messages_by_session: dict[str, list] = {sid: [] for sid in session_ids}
+        # Per-session message full text (IN-clause batch fetch)
+        # message.data is JSON: {"role": "user"|"assistant", ...} — schema may vary
+        messages_by_session = {sid: [] for sid in session_ids}
         placeholders = ",".join("?" * len(session_ids))
-        # 1) 拿 message 元信息(不带 try,因为前序 session 元数据查询已成功)
+        # 1) Fetch message metadata
         cur.execute(
             f"""
             SELECT id, session_id, time_created, data
@@ -309,9 +312,9 @@ if oc_db.exists():
         )
         message_rows = cur.fetchall()
         msg_by_id = {r[0]: r for r in message_rows}
-        # 2) 拿 part 全文(按 message_id group)
+        # 2) Fetch part full text (group by message_id)
         message_ids = list(msg_by_id.keys())
-        parts_by_msg: dict[str, list] = {mid: [] for mid in message_ids}
+        parts_by_msg = {mid: [] for mid in message_ids}
         try:
             if message_ids:
                 p_placeholders = ",".join("?" * len(message_ids))
@@ -327,6 +330,7 @@ if oc_db.exists():
                 part_rows = cur.fetchall()
                 for pmid, pts_ms, pdata in part_rows:
                     if pmid not in parts_by_msg:
+                        # Orphan part (parent message not in scope); skip
                         continue
                     parts_by_msg[pmid].append(
                         {"time": ts_ms_to_sh(pts_ms), "data": pdata}
@@ -337,9 +341,9 @@ if oc_db.exists():
                 "error": f"{type(e).__name__}: {e}",
                 "traceback": traceback.format_exc().splitlines()[-5:],
             }
-        # 3) 组装:每个 message 把它的 part 分两层
-        #   层次 2(dialog): text 内容,排除 subagent
-        #   层次 1(actions): tool/file/patch 动作摘要
+        # 3) Assemble: split each message into two layers
+        #    Layer 2 (dialog): text content, exclude subagent
+        #    Layer 1 (actions): tool/file/patch action summary
         for mid, row in msg_by_id.items():
             sid = row[1]
             ts_ms = row[2]
@@ -353,11 +357,11 @@ if oc_db.exists():
             for p in parts:
                 txt = _extract_text(p["data"])
                 if txt:
-                    # 层次 2:主 agent 的所有 text + reasoning → 角色对话
-                    #         subagent 的 text → 丢弃(避免污染主对话)
+                    # Layer 2: main-agent text + reasoning → role dialog
+                    #         subagent text → discard (don't pollute main dialog)
                     if is_main:
                         dialog_chunks.append(txt)
-                # 层次 1:动作摘要(主+sub 都抽,工具调用是工作内容)
+                # Layer 1: action summary (main + sub both extracted — tool calls are work)
                 act = _extract_part_action(p["data"])
                 if act:
                     actions.append(act)
@@ -371,30 +375,29 @@ if oc_db.exists():
                     "tokens": meta.get("tokens_total"),
                     "finish": meta.get("finish"),
                     "time": ts_ms_to_sh(ts_ms),
-                    # 层次 2: 直接对话(只主 agent)
+                    # Layer 2: direct dialog (main agent only)
                     "dialog": dialog,
-                    # 层次 1: 做了什么(tools/files/patches)
+                    # Layer 1: what was done (tools/files/patches)
                     "actions": actions,
                     "parts_count": len(parts),
                 }
             )
-        # 把 messages 挂到对应 session 上
+        # Attach messages to each session
         for s in sessions_meta:
             s["messages"] = messages_by_session.get(s["id"], [])
             s["messages_count"] = len(s["messages"])
         results["sources"]["opencode"] = {
             "active_today": n_today,
             "sessions_sample": sessions_meta,
-            "note": "完整 message.data 文本已展开;tool_call/非文本 part 暂时丢弃(留给后续 v2)",
+            "note": "Full message.data text expanded; tool_call / non-text parts dropped (left for v2).",
         }
+        con.close()
     except Exception as e:
         import traceback
         results["sources"]["opencode"] = {
             "error": f"{type(e).__name__}: {e}",
             "traceback": traceback.format_exc().splitlines()[-8:],
         }
-        if 'con' in dir() and con:
-            con.close()
 
 # ---------- 3. Claude Code JSONL ----------
 claude_files = []
@@ -402,9 +405,10 @@ claude_today_bytes = 0
 for jl in HOME.glob(".claude/projects/**/*.jsonl"):
     try:
         mtime = jl.stat().st_mtime
+        # Skip files written within the last 60s (likely being written)
         if time.time() - mtime < 60:
             continue
-        if mtime >= TODAY_TS:
+        if TODAY_TS <= mtime <= END_TS:
             claude_files.append(
                 {"file": str(jl), "mtime": mtime, "size": jl.stat().st_size}
             )
@@ -412,7 +416,7 @@ for jl in HOME.glob(".claude/projects/**/*.jsonl"):
     except (FileNotFoundError, OSError):
         continue
 results["sources"]["claude_code"] = {
-    "today_files": claude_files[:30],
+    "today_files": claude_files,
     "total_today": len(claude_files),
     "today_bytes": claude_today_bytes,
 }
@@ -428,7 +432,7 @@ for base in [HOME / ".codex/sessions", HOME / ".codex/archived_sessions"]:
             mtime = jl.stat().st_mtime
             if time.time() - mtime < 60:
                 continue
-            if mtime >= TODAY_TS:
+            if TODAY_TS <= mtime <= END_TS:
                 codex_files.append(
                     {"file": str(jl), "mtime": mtime, "size": jl.stat().st_size}
                 )
@@ -436,12 +440,12 @@ for base in [HOME / ".codex/sessions", HOME / ".codex/archived_sessions"]:
         except (FileNotFoundError, OSError):
             continue
 results["sources"]["codex"] = {
-    "today_files": codex_files[:30],
+    "today_files": codex_files,
     "total_today": len(codex_files),
     "today_bytes": codex_today_bytes,
 }
 
-# ---------- 5. Claudian (Vault 内) ----------
+# ---------- 5. Claudian (in-Vault metadata) ----------
 claudian_files = []
 csdir = HOME / "Documents/Obsidian/.claudian/sessions"
 if csdir.exists():
@@ -450,24 +454,24 @@ if csdir.exists():
             mtime = f.stat().st_mtime
             if time.time() - mtime < 60:
                 continue
-            if mtime >= TODAY_TS:
-                claudian_files.append(
-                    {"file": str(f), "mtime": mtime, "size": f.stat().st_size}
-                )
+            if TODAY_TS <= mtime <= END_TS:
+                claudian_files.append({"file": str(f), "mtime": mtime})
         except (FileNotFoundError, OSError):
             continue
 results["sources"]["claudian"] = {
     "today_files": claudian_files,
-    "total_today": len(claudian_files),
+    "count": len(claudian_files),
+    "note": "Metadata only; Claudian does not store transcript body. Use the OpenCode/Hermes sessions it bridges for full dialog.",
 }
 
-with open(OUT, "w") as f:
-    json.dump(results, f, indent=2, ensure_ascii=False, default=str)
+# ---------- Write JSON ----------
+with open(OUT, "w", encoding="utf-8") as f:
+    json.dump(results, f, ensure_ascii=False, indent=2, default=str)
 
-total = sum(
-    s.get("total_today", s.get("active_today", 0))
-    for s in results["sources"].values()
-    if isinstance(s, dict)
+total_active = sum(
+    info.get("active_today", info.get("active_by_last_activity", info.get("total_today", info.get("count", 0))))
+    for info in results["sources"].values()
+    if isinstance(info, dict)
 )
-print(f"OK 今日活跃: total={total} sources={list(results['sources'].keys())}")
-print(f"   输出: {OUT}")
+print(f"OK today active: total={total_active} sources={list(results['sources'].keys())}")
+print(f"   output: {OUT}")

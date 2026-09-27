@@ -37,44 +37,46 @@ generated_at: 2026-09-27T22:30:00+08:00
 generated_by: hermes cron "summarize-today"
 tasks:
   - slug: cross-harness-worklog-hermes-config
-    name: 跨 Harness 工作日志机制
+    name: Cross-Harness Worklog Mechanism
     status: ongoing
     stages_count: 2
 ---
 
-# 2026-09-27 工作汇总
+# 2026-09-27 Work Summary
 
-## 任务索引
-- **任务 1 · 跨 Harness 工作日志机制**: 设计与实现 ...
-- **任务 2 · AI 辅助写作素材整理**: ...
+## Task Index
+- **Task 1 · Cross-Harness Worklog Mechanism**: design + implementation ...
+- **Task 2 · AI-Assisted Writing Material**: ...
 
-## 任务过程
+## Task Narrative
 
-### 任务 1 · 跨 Harness 工作日志机制
+### Task 1 · Cross-Harness Worklog Mechanism
 
-(200-400 字叙述:为什么做 / 过程 / 决策 / 产物)
+(200-400 word narrative: why / how / decisions / artifacts)
 
-**Session DB 引用**
-- 主 session: `file:///Users/eason/.hermes/state.db#session=20260920_220123_5c12c5` — "Create new session in WeChat"
-- 支线: OpenCode `file:///Users/eason/.local/share/opencode/opencode.db#session=ses_f1f672292ffeyjFIQzaBhuznCX`
-- 跨 harness: 任务叙述涉及多 harness 时全列
+**Session DB References**
+- Main session: `file:///Users/eason/.hermes/state.db#session=20260920_220123_5c12c5` — "Create new session in WeChat"
+- Sub-sessions: OpenCode `file:///Users/eason/.local/share/opencode/opencode.db#session=ses_f1f672292ffeyjFIQzaBhuznCX`
+- Cross-harness: list all sources if the task spans harnesses
 
-### 任务 2 · AI 辅助写作素材整理
+### Task 2 · AI-Assisted Writing Material
 
 (narrative ...)
 
-**Session DB 引用**
-- 主 session: `file:///Users/eason/.local/share/opencode/opencode.db#session=ses_f1f672292ffeyjFIQzaBhuznCX`
+**Session DB References**
+- Main session: `file:///Users/eason/.local/share/opencode/opencode.db#session=ses_f1f672292ffeyjFIQzaBhuznCX`
 
-## 待办跟进
+## Todo Follow-up
 - [ ] (only items explicitly mentioned today)
 
 ## Notes
 ```
 
+> **Localization**: If you write daily notes in Chinese, use `prompts/summarize-today.zh.md` instead — swap `Task 1 · <name>` for `任务 1 · <name>`. Both prompts are functionally identical.
+
 **Two layers, no overlap:** Layer 1 (task index) is one line per task — scan-only. Layer 2 (task narrative) is 200-400 words per task — read-for-context. Layer 1 hooks; Layer 2 delivers the body.
 
-**Session DB references are not decoration — they are the audit trail.** Every task's narrative points back to the exact session database file and session ID where the work happened. Click a `file://` link on macOS Finder and it opens the SQLite DB; pair with the session_id and you can run a SQL query to recover the full original conversation. The daily.md itself is intentionally lighter than a clone — full session content stays in the original harness DB; the daily.md tells you *what* and *why*, the Session DB reference tells you *where the truth lives*.
+**Session DB References are the audit trail, not decoration.** Every task's narrative points back to the exact session database file and session ID where the work happened. Click a `file://` link on macOS Finder and it opens the SQLite DB; pair with the session_id and you can run a SQL query to recover the full original conversation. The daily.md itself is intentionally lighter than a clone — full session content stays in the original harness DB; the daily.md tells you *what* and *why*, the Session DB References tell you *where the truth lives*.
 
 ## Why "AcornForge"
 
