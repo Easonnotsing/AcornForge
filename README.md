@@ -49,11 +49,22 @@ tasks:
 - **任务 2 · AI 辅助写作素材整理**: ...
 
 ## 任务过程
+
 ### 任务 1 · 跨 Harness 工作日志机制
-(200-400 字叙述:为什么做/过程/决策/产物)
+
+(200-400 字叙述:为什么做 / 过程 / 决策 / 产物)
 
 **Session DB 引用**
-- 主 session: `file:///Users/eason/.hermes/state.db#session=20260920_220123_5c12c5`
+- 主 session: `file:///Users/eason/.hermes/state.db#session=20260920_220123_5c12c5` — "Create new session in WeChat"
+- 支线: OpenCode `file:///Users/eason/.local/share/opencode/opencode.db#session=ses_f1f672292ffeyjFIQzaBhuznCX`
+- 跨 harness: 任务叙述涉及多 harness 时全列
+
+### 任务 2 · AI 辅助写作素材整理
+
+(narrative ...)
+
+**Session DB 引用**
+- 主 session: `file:///Users/eason/.local/share/opencode/opencode.db#session=ses_f1f672292ffeyjFIQzaBhuznCX`
 
 ## 待办跟进
 - [ ] (only items explicitly mentioned today)
@@ -62,6 +73,8 @@ tasks:
 ```
 
 **Two layers, no overlap:** Layer 1 (task index) is one line per task — scan-only. Layer 2 (task narrative) is 200-400 words per task — read-for-context. Layer 1 hooks; Layer 2 delivers the body.
+
+**Session DB references are not decoration — they are the audit trail.** Every task's narrative points back to the exact session database file and session ID where the work happened. Click a `file://` link on macOS Finder and it opens the SQLite DB; pair with the session_id and you can run a SQL query to recover the full original conversation. The daily.md itself is intentionally lighter than a clone — full session content stays in the original harness DB; the daily.md tells you *what* and *why*, the Session DB reference tells you *where the truth lives*.
 
 ## Why "AcornForge"
 

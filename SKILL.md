@@ -124,15 +124,22 @@ backfilled_at: <Beijing ISO, only if backfill>
 - **任务 2 · <name>**: <one-line summary>
 
 ## 任务过程
+
 ### 任务 1 · <name>
-<200-400 word narrative: why / how / decisions / artifacts>
+
+(200-400 word narrative: why / how / decisions / artifacts)
+
+**Session DB 引用**
+- 主 session: `file:///path/to/db#session=<id>` — "<human title>"
+- 支线: <other db paths + session ids>
+- 跨 harness: <only if the task spans multiple harnesses>
+
+### 任务 2 · <name>
+
+(narrative)
 
 **Session DB 引用**
 - 主 session: `file:///path/to/db#session=<id>`
-- 支线: ...
-
-### 任务 2 · <name>
-<narrative>
 
 ## 待办跟进
 - [ ] <only items explicitly mentioned in today's conversation>
@@ -140,6 +147,8 @@ backfilled_at: <Beijing ISO, only if backfill>
 ## Notes
 <any anomalies or warnings>
 ```
+
+**Session DB references are the audit trail, not decoration.** Every task's narrative ends with a `Session DB 引用` block listing the exact SQLite/JSONL file path and session ID where the work happened. macOS Finder `file://` links open the database directly; SQL queries by `session_id` recover the full original conversation. The daily.md is intentionally lighter than a clone — full content stays in the original harness DB; daily.md tells you *what* and *why*, the Session DB references tell you *where the truth lives*.
 
 ### Two layers, no overlap
 
