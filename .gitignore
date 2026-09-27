@@ -1,0 +1,10 @@
+# Build / runtime
+__pycache__/
+*.pyc
+*.pyo
+
+# Local override files (if anyone customizes the prompt/script for their own vault)
+*.local
+
+# macOS
+.DS_Store

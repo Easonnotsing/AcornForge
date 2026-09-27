@@ -1,6 +1,6 @@
 ---
-name: cross-harness-daily-worklog
-description: "Aggregate daily sessions across AI harnesses into Obsidian."
+name: acornforge
+description: "Daily cross-harness worklog aggregation into Obsidian."
 version: 1.0.0
 author: Eason + Hermes Agent
 license: MIT
@@ -11,9 +11,9 @@ metadata:
     homepage: https://github.com/NousResearch/hermes-agent
 ---
 
-# Cross-Harness Daily Worklog
+# AcornForge
 
-Daily aggregation of AI agent sessions across multiple harnesses (Hermes / OpenCode / Claude Code / Codex CLI / Claudian) into a single Obsidian-readable worklog. Designed for users who use multiple AI tools and want a unified daily summary for review and audit.
+Daily aggregation of AI agent sessions across multiple harnesses (Hermes / OpenCode / Claude Code / Codex CLI / Claudian) into a single Obsidian-readable worklog. Each day's work — every commit, every conversation, every decision — is an acorn planted into the vault.
 
 ---
 
@@ -209,7 +209,7 @@ All timestamps are converted to Asia/Shanghai via `TZ_SH = timezone(timedelta(ho
 ## Files in This Skill
 
 ```
-cross-harness-daily-worklog/
+AcornForge/
 ├── SKILL.md                          (this file)
 ├── scripts/
 │   └── aggregate_today_sessions.py  (Job 1: shell-only collector)
