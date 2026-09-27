@@ -19,15 +19,16 @@ Daily aggregation of AI agent sessions across multiple harnesses (Hermes / OpenC
 
 ## What This Skill Does
 
-Two scheduled jobs that run together:
+Three scheduled jobs that run together:
 
 1. **Job 1 (aggregate-today-sessions)** — shell-only cron at 22:00. Queries 5 harnesses' local SQLite/JSONL storage, extracts today's sessions + dialog + actions, writes a single JSON.
 2. **Job 2 (summarize-today)** — agent LLM cron at 22:30. Reads the JSON, writes a daily summary Markdown file in Obsidian Vault. Handles backfill if previous days were missed.
+3. **Job 3 (weekly-synthesis)** — agent LLM cron **Sundays at 23:00** (after Job 2, so the week is complete). Reads the week's 7 daily files, writes one **theme-organized** weekly summary. This is the "week layer" above the daily layer.
 
 Output:
-- `~/Documents/Obsidian/Agents Shared Worklog/daily/YYYY-MM-DD.md` — daily worklog
-- `~/Documents/Obsidian/Agents Shared Worklog/.task-index/tasks.json` — cross-day task continuity index
-- `~/Documents/Obsidian/Agents Shared Worklog/weekly/YYYY-WNN.md` — weekly synthesis (manual or scheduled)
+- `~/Documents/Obsidian/Agents Shared Worklog/daily/YYYY-MM-DD.md` — daily worklog (Job 2)
+- `~/Documents/Obsidian/Agents Shared Worklog/.task-index/tasks.json` — cross-day task continuity index (Job 2)
+- `~/Documents/Obsidian/Agents Shared Worklog/weekly/YYYY-WNN.md` — weekly synthesis (Job 3, Sunday 23:00)
 
 ---
 
@@ -39,6 +40,7 @@ Output:
 |------|--------|
 | `~/.hermes/scripts/aggregate_today_sessions.py` | this skill's `scripts/aggregate_today_sessions.py` |
 | `~/Documents/Obsidian/Agents Shared Worklog/.hermes-prompts/summarize-today.md` | this skill's `prompts/summarize-today.md` |
+| `~/Documents/Obsidian/Agents Shared Worklog/.hermes-prompts/weekly-synthesis.md` | this skill's `prompts/weekly-synthesis.md` |
 | `~/Documents/Obsidian/Agents Shared Worklog/.task-index/tasks.json` | start empty `{"tasks": {}}` |
 | `~/Documents/Obsidian/Agents Shared Worklog/daily/` | exists or create |
 | `~/Documents/Obsidian/Agents Shared Worklog/weekly/` | exists or create |
@@ -63,6 +65,16 @@ hermes-cron create \
 ```
 
 (Where `job2-prompt.txt` is the wrapper that `cat`s the full prompt + tasks.json + today's JSON, then writes daily.md.)
+
+Job 3 — agent, weekly (Sundays 23:00):
+```
+hermes-cron create \
+  --name weekly-synthesis \
+  --schedule "0 23 * * 0" \
+  --prompt-file /path/to/job3-prompt.txt
+```
+
+(Where `job3-prompt.txt` `cat`s `prompts/weekly-synthesis.md` — see that file. Job 3 runs after Job 2 so the week's final daily already exists.)
 
 ### 3. Manual test
 
@@ -202,7 +214,42 @@ If the daily cron is missed (laptop off / sleep / cron daemon down), the next ru
 4. Then write today's daily normally
 5. Don't backfill dates older than this week (session DBs may have rotated; data unreliable)
 
-Weekly synthesis should run the same check on its 7-day window before generating.
+Weekly synthesis runs the same check on its 7-day window before generating (see below).
+
+---
+
+## Weekly Synthesis (Job 3)
+
+The week layer. One file per ISO week: `weekly/YYYY-WNN.md`.
+
+- **Schedule**: Sunday 23:00 (`0 23 * * 0`). Deliberately 30 min after Job 2 (22:30) so
+  the week's final daily — Sunday's — is already written.
+- **Input**: the 7 `daily/YYYY-MM-DD.md` files for the week + `.task-index/tasks.json`
+  (read-only; Job 3 never writes the index — Job 2 owns it).
+- **Organize by theme / project, not by day.** A weekly is not seven dailies stapled
+  together; a task line that advanced across several days merges into one theme block.
+- **Required frontmatter**: `week` + `date_range` at minimum, plus `type: weekly-summary`,
+  `sources: [shared/daily/*.md]`, `auto_generated_by`.
+- **Every claim cites its daily** as a wikilink `(参见 [[YYYY-MM-DD]])`.
+- **Append-only spirit**: if the week's file already exists, merge/update — never drop
+  prior content.
+- **Silent week**: if all 7 days have no record, emit `[SILENT]` and write no file.
+
+### Cron authoring trap — compute the week with `date`, never `python -c`
+
+Cron runs **without a human to approve commands**: a `python3 -c "..."` one-liner is
+blocked by the cron safety policy and the run stalls mid-task. Compute the ISO week with
+plain BSD `date` (passes unapproved):
+
+```bash
+date +%G-W%V            # 2026-W39
+date -v-mon  +%F        # Monday of this week
+date -v-mon -v+6d +%F   # Sunday of this week
+```
+
+When a manual verification run supplies the date range in its Run Context, the agent can
+use it — but the prompt must still carry a self-sufficient `date` path for the
+unattended Sunday run.
 
 ---
 
@@ -216,6 +263,8 @@ The repo ships with **two prompt variants** for Job 2:
 |------|----------|----------|
 | `prompts/summarize-today.md` | English | Daily notes in English |
 | `prompts/summarize-today.zh.md` | Chinese (中文) | Daily notes in Chinese |
+| `prompts/weekly-synthesis.md` | English | Weekly notes in English |
+| `prompts/weekly-synthesis.zh.md` | Chinese (中文) | Weekly notes in Chinese |
 
 Both prompts are functionally identical — only the language differs. The slug format, task structure, backfill logic, and Session DB references are the same.
 
@@ -266,10 +315,16 @@ All timestamps are converted to Asia/Shanghai via `TZ_SH = timezone(timedelta(ho
 ```
 AcornForge/
 ├── SKILL.md                          (this file)
+├── README.md
 ├── scripts/
-│   └── aggregate_today_sessions.py  (Job 1: shell-only collector)
-└── prompts/
-    └── summarize-today.md            (Job 2: agent prompt template)
+│   └── aggregate_today_sessions.py   (Job 1: shell-only collector)
+├── prompts/
+│   ├── summarize-today.md            (Job 2: agent prompt, EN)
+│   ├── summarize-today.zh.md         (Job 2: agent prompt, 中文)
+│   ├── weekly-synthesis.md           (Job 3: agent prompt, EN)
+│   └── weekly-synthesis.zh.md        (Job 3: agent prompt, 中文)
+└── templates/
+    └── tasks.json.template           (empty task-index starter)
 ```
 
 ---

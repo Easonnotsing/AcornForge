@@ -2,18 +2,21 @@
 
 > Each day's work — every commit, every conversation, every decision — is an acorn planted into the vault.
 
-Daily aggregation of AI agent sessions across multiple harnesses (Hermes / OpenCode / Claude Code / Codex CLI / Claudian) into a single Obsidian-readable worklog. Two cron jobs run nightly: one collects, one summarizes.
+Daily aggregation of AI agent sessions across multiple harnesses (Hermes / OpenCode / Claude Code / Codex CLI / Claudian) into a single Obsidian-readable worklog. Three cron jobs run on a nightly/weekly cadence: one collects, one summarizes the day, one synthesizes the week.
 
 ## What it does
 
 ```
-22:00  Job 1 (shell)   ──>  ~/.hermes/cache/cron/aggregate/YYYY-MM-DD.json
-                              (5 harnesses' sessions + dialog + actions)
+22:00  Job 1 (shell, daily)   ──>  ~/.hermes/cache/cron/aggregate/YYYY-MM-DD.json
+                                    (5 harnesses' sessions + dialog + actions)
 
-22:30  Job 2 (agent)   ──>  ~/Documents/Obsidian/Agents Shared Worklog/daily/YYYY-MM-DD.md
-                              (task-indexed narrative with Session DB refs)
-                              ~/Documents/Obsidian/Agents Shared Worklog/.task-index/tasks.json
-                              (cross-day task continuity index)
+22:30  Job 2 (agent, daily)   ──>  ~/Documents/Obsidian/Agents Shared Worklog/daily/YYYY-MM-DD.md
+                                    (task-indexed narrative with Session DB refs)
+                                    ~/Documents/Obsidian/Agents Shared Worklog/.task-index/tasks.json
+                                    (cross-day task continuity index)
+
+Sun 23:00  Job 3 (agent, weekly) ──> ~/Documents/Obsidian/Agents Shared Worklog/weekly/YYYY-WNN.md
+                                    (theme-organized synthesis of the week's 7 dailies)
 ```
 
 If your laptop was off and a day was missed, the next run will **backfill** missing days (within the current ISO week — older session DBs may have rotated).
@@ -22,8 +25,9 @@ If your laptop was off and a day was missed, the next run will **backfill** miss
 
 1. Copy `scripts/aggregate_today_sessions.py` to `~/.hermes/scripts/`
 2. Copy `prompts/summarize-today.md` to `~/Documents/Obsidian/Agents Shared Worklog/.hermes-prompts/`
-3. Copy `templates/tasks.json.template` to `~/Documents/Obsidian/Agents Shared Worklog/.task-index/tasks.json`
-4. Register two cron jobs (see SKILL.md for `hermes-cron create` commands)
+3. Copy `prompts/weekly-synthesis.md` to the same `.hermes-prompts/` directory
+4. Copy `templates/tasks.json.template` to `~/Documents/Obsidian/Agents Shared Worklog/.task-index/tasks.json`
+5. Register three cron jobs (see SKILL.md for `hermes-cron create` commands)
 
 ## Output structure
 
