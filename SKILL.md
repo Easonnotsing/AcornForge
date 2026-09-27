@@ -146,6 +146,15 @@ backfilled_at: <Beijing ISO, only if backfill>
 - **任务索引 (Layer 1)**: 1 line per task. Scan-only. "What happened."
 - **任务过程 (Layer 2)**: 200-400 words per task. Read-for-context. "Why + how + decisions."
 - **No repetition.** Layer 1 is a hook, Layer 2 is the body.
+- **Draft order matters.** Write Layer 1 first as a literal one-line summary per task, then close the file mentally before drafting Layer 2. If the agent writes both layers in the same pass it will paraphrase Layer 1 into Layer 2 — the user has hit this three times in development. Treat them as two separate writing tasks.
+
+### Todo source discipline
+
+The 待办跟进 section lists ONLY items explicitly mentioned in the day's dialog (a user/agent "todo / 跟进 / 记得 / next step / 明天做"). Do not pull candidate todos from MEMORY.md, USER.md, or any persistent state — the user has rejected "iCloud Obsidian sync方案" appearing in daily todos when iCloud was not discussed that day. If no dialog mentioned a todo, write `- [ ] (今日对话无明确待办)` instead of inventing one.
+
+### Hermes Desktop dialog is part of the worklog
+
+The Hermes segment MUST extract `messages` table dialog (user/assistant `content`), not only session metadata. v1 of this skill extracted only `sessions` metadata, which made the daily silent about the user's main chat activity on the day they were actually working. Treat Hermes Desktop dialog as required — same priority as OpenCode dialog.
 
 ---
 
@@ -196,9 +205,13 @@ Edit Job 1's `OUT` constant and Job 2's prompt paths if you want a different Vau
 
 In `aggregate_today_sessions.py`, add a new section under the existing 5. Two patterns:
 
-**JSONL harness** (Claude Code / Codex style): glob `~/.path/**/*.jsonl`, filter by `mtime >= TODAY_TS`.
+**JSONL harness** (Claude Code / Codex style): glob `~/.path/**/*.jsonl`, filter by `mtime >= TODAY_TS AND mtime <= END_TS`.
 
-**SQLite harness** (Hermes / OpenCode style): open with `mode=ro` + `uri=True` + `timeout=1.0`. Always do `PRAGMA table_info(<table>)` first — don't assume columns.
+**SQLite harness** (Hermes / OpenCode style): open with `mode=ro` + `uri=True` + `timeout=1.0`. **Always do `PRAGMA table_info(<table>)` first** — do not assume columns. Two traps the user hit when extending this skill:
+- Hermes `state.db`: `messages.role` is a real column, `message` table does NOT exist — don't confuse them.
+- OpenCode `opencode.db`: `message` table has NO `role` column — role lives inside `message.data` JSON. Same for `time_created` (epoch ms, not seconds). Assistant text lives in `part` table (not `message`), keyed by `part.message_id`.
+
+**Time filter must always include an upper bound.** Every SQLite WHERE on a timestamp needs both `>= TODAY_TS` AND `<= END_TS`. Without the upper bound, a backfill for `2026-09-20` running on `2026-09-27` will pull today's sessions into the historical aggregate — the lower bound alone is not enough.
 
 ### Change Beijing timezone enforcement
 
