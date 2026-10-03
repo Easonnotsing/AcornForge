@@ -95,7 +95,8 @@ hermes chat -q "$(cat job2-prompt.txt)"
 
 | Harness | Storage | Time format | Fields extracted |
 |---------|---------|-------------|-----------------|
-| **Hermes** | `~/.hermes/state.db` (SQLite) | epoch seconds | session id/source/title/model/tokens; message dialog (user/assistant content) |
+| **Hermes (1:1)** | `~/.hermes/state.db` (SQLite) | epoch seconds | session id/source/title/model/tokens; message dialog (user/assistant content) |
+| **Hermes Bot Mode groups** | each profile's `state.db` under `~/.hermes/profiles/<name>/state.db` | epoch seconds | sessions where `source='desktop' AND title LIKE 'Group:%'`; per-room/per-profile cross-section, dialog capped at 2000 chars/message |
 | **OpenCode** | `~/.local/share/opencode/opencode.db` (SQLite) | epoch milliseconds | session metadata; message.role/agent/model from `data` JSON; part.text for type='text' only |
 | **Claude Code** | `~/.claude/projects/**/*.jsonl` | file mtime | file path/mtime/size |
 | **Codex CLI** | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | file mtime | file path/mtime/size |
@@ -178,6 +179,25 @@ The Todo Follow-up section lists ONLY items explicitly mentioned in the day's di
 ### Hermes Desktop dialog is part of the worklog
 
 The Hermes segment MUST extract `messages` table dialog (user/assistant `content`), not only session metadata. v1 of this skill extracted only `sessions` metadata, which made the daily silent about the user's main chat activity on the day they were actually working. Treat Hermes Desktop dialog as required — same priority as OpenCode dialog.
+
+### Bot Mode group sessions land in each profile's `state.db`
+
+Bot Mode group chat (e.g. "All hands group") is **not** a separate harness: each room creates one session per backup profile under the same `source='desktop'`, distinguished only by `title LIKE 'Group:%'`. Job 1 walks every profile's `state.db` (`default`, `huaan`, `huasheng`, `huawen`, `huawu`, `wendy`) and emits a `sources.hermes_group` block:
+
+```json
+{
+  "by_profile": {"default": 4, "huaan": 1, ...},
+  "by_room":    {"rmujt7yf4-adr4t": {"profiles": [...], "messages": 57}},
+  "sessions_sample": [{"id", "title", "profile", "room_id", "dialog": [...]}, ...],
+  "total_messages": 57
+}
+```
+
+Three traps the user hit when extending this skill:
+
+- **Same source as 1:1 chat.** A naive `source='desktop'` query covers group sessions too — filter by `title LIKE 'Group:%'`. Without the title filter, group activity is silently swallowed by the 1:1 Hermes segment.
+- **Per-profile partial slices.** Each profile sees a different turn of the room conversation, not a full mirror. Do not pretend the union is complete; treat each profile's view as its own evidence slice and let the summarizer merge. The 2000-char per-message cap applies here too.
+- **Cross-day activity turns count.** Group threads are resumed across days; use `last_activity_at >= TODAY_TS AND last_activity_at <= END_TS`, the same rule as 1:1 chat — a session started yesterday but active today is today's activity.
 
 ---
 
